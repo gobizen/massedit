@@ -104,7 +104,6 @@ class MassEdit(object):
           - dry_run (bool): skip actual modification of input file if True.
 
         """
-        self.code_objs = dict()
         self._codes = []
         self._functions = []
         self._executables = []
