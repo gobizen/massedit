@@ -3,7 +3,7 @@
 
 """A python bulk editor class to apply the same code to many files."""
 
-# Copyright (c) 2012-16 Jérôme Lecomte
+# Copyright (c) 2012-21 Elmotec
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,22 +25,20 @@
 
 from __future__ import unicode_literals
 
-
-import os
-import shutil
-import sys
-import logging
 import argparse
 import difflib
-import re  # For convenience, pylint: disable=W0611
 import fnmatch
 import io
+import logging
+import os
+import re  # noqa: F401 pylint: disable=W0611
+import shutil
 import subprocess
+import sys
 
-
-__version__ = '0.68.1'  # UPDATE setup.py when changing version.
-__author__ = 'Jérôme Lecomte'
-__license__ = 'MIT'
+__version__ = "0.69.1"  # UPDATE setup.cfg when changing version.
+__author__ = "Elmotec"
+__license__ = "MIT"
 
 
 log = logging.getLogger(__name__)
@@ -69,24 +67,34 @@ def get_function(fn_name):
       fn_name: specification of the type module:function_name.
 
     """
-    module_name, callable_name = fn_name.split(':')
+    module_name, callable_name = fn_name.split(":")
     current = globals()
     if not callable_name:
         callable_name = module_name
     else:
         import importlib
+
         try:
             module = importlib.import_module(module_name)
         except ImportError:
             log.error("failed to import %s", module_name)
             raise
         current = module
-    for level in callable_name.split('.'):
+    for level in callable_name.split("."):
         current = getattr(current, level)
     code = current.__code__
     if code.co_argcount != 2:
-        raise ValueError('function should take 2 arguments: lines, file_name')
+        raise ValueError("function should take 2 arguments: lines, file_name")
     return current
+
+
+def readlines(input_):
+    """Return lines from input."""
+    try:
+        return input_.readlines()
+    except UnicodeDecodeError as err:
+        log.error("encoding error (see --encoding): %s", err)
+        raise
 
 
 class MassEdit(object):
@@ -104,24 +112,27 @@ class MassEdit(object):
           - dry_run (bool): skip actual modification of input file if True.
 
         """
-        self.code_objs = dict()
+        self.code_objs = {}
         self._codes = []
         self._functions = []
         self._executables = []
         self.dry_run = None
-        self.encoding = 'utf-8'
-        if 'module' in kwds:
-            self.import_module(kwds['module'])
-        if 'code' in kwds:
-            self.append_code_expr(kwds['code'])
-        if 'function' in kwds:
-            self.append_function(kwds['function'])
-        if 'executable' in kwds:
-            self.append_executable(kwds['executable'])
-        if 'dry_run' in kwds:
-            self.dry_run = kwds['dry_run']
-        if 'encoding' in kwds:
-            self.encoding = kwds['encoding']
+        self.encoding = "utf-8"
+        self.newline = None
+        if "module" in kwds:
+            self.import_module(kwds["module"])
+        if "code" in kwds:
+            self.append_code_expr(kwds["code"])
+        if "function" in kwds:
+            self.append_function(kwds["function"])
+        if "executable" in kwds:
+            self.append_executable(kwds["executable"])
+        if "dry_run" in kwds:
+            self.dry_run = kwds["dry_run"]
+        if "encoding" in kwds:
+            self.encoding = kwds["encoding"]
+        if "newline" in kwds:
+            self.newline = kwds["newline"]
 
     @staticmethod
     def import_module(module):  # pylint: disable=R0201
@@ -149,10 +160,9 @@ class MassEdit(object):
             raise
         if result is None:
             log.error("cannot process line '%s' with %s", line, code)
-            raise RuntimeError('failed to process line')
+            raise RuntimeError("failed to process line")
         elif isinstance(result, list) or isinstance(result, tuple):
-            line = unicode(' '.join([unicode(res_element)
-                                     for res_element in result]))
+            line = unicode(" ".join([unicode(res_element) for res_element in result]))
         else:
             line = unicode(result)
         return line
@@ -180,13 +190,51 @@ class MassEdit(object):
             try:
                 lines = list(function(lines, file_name))
             except UnicodeDecodeError as err:
-                log.error('failed to process %s: %s', file_name, err)
+                log.error("failed to process %s: %s", file_name, err)
                 return lines
             except Exception as err:
-                log.error("failed to process %s with code %s: %s",
-                          file_name, function, err)
+                log.error(
+                    "failed to process %s with code %s: %s", file_name, function, err
+                )
                 raise  # Let the exception be handled at a higher level.
         return lines
+
+    def write_to(self, file_name, to_lines):
+        """Writes output lines to file."""
+        bak_file_name = file_name + ".bak"
+        if os.path.exists(bak_file_name):
+            msg = "{} already exists".format(bak_file_name)
+            if sys.version_info < (3, 3):
+                raise OSError(msg)
+            else:
+                # noinspection PyCompatibility
+                # pylint: disable=undefined-variable
+                raise FileExistsError(msg)
+        try:
+            os.rename(file_name, bak_file_name)
+            with io.open(
+                file_name, "w", encoding=self.encoding, newline=self.newline
+            ) as new:
+                new.writelines(to_lines)
+            # Keeps mode of original file.
+            shutil.copymode(bak_file_name, file_name)
+        except Exception as err:
+            log.error("failed to write output to %s: %s", file_name, err)
+            # Try to recover...
+            try:
+                os.rename(bak_file_name, file_name)
+            except OSError as err:
+                log.error(
+                    "failed to restore %s from %s: %s",
+                    file_name,
+                    bak_file_name,
+                    err,
+                )
+            raise
+        try:
+            os.unlink(bak_file_name)
+        except OSError as err:
+            log.warning("failed to remove backup %s: %s", bak_file_name, err)
 
     def edit_file(self, file_name):
         """Edit file in place, returns a list of modifications (unified diff).
@@ -195,23 +243,21 @@ class MassEdit(object):
           file_name (str, unicode): The name of the file.
 
         """
-        with io.open(file_name, "r", encoding=self.encoding) as from_file:
-            try:
-                from_lines = from_file.readlines()
-            except UnicodeDecodeError as err:
-                log.error("encoding error (see --encoding): %s", err)
-                raise
+        if file_name == "-":
+            from_lines = readlines(sys.stdin)
+        else:
+            with io.open(file_name, "r", encoding=self.encoding) as from_file:
+                from_lines = readlines(from_file)
 
         if self._executables:
             nb_execs = len(self._executables)
             if nb_execs > 1:
-                log.warn("found %d executables. Will use first one", nb_execs)
+                log.warning("found %d executables. Will use first one", nb_execs)
             exec_list = self._executables[0].split()
             exec_list.append(file_name)
             try:
                 log.info("running %s...", " ".join(exec_list))
-                output = subprocess.check_output(exec_list,
-                                                 universal_newlines=True)
+                output = subprocess.check_output(exec_list, universal_newlines=True)
             except Exception as err:
                 log.error("failed to execute %s: %s", " ".join(exec_list), err)
                 raise  # Let the exception be handled at a higher level.
@@ -221,38 +267,14 @@ class MassEdit(object):
 
         # unified_diff wants structure of known length. Convert to a list.
         to_lines = list(self.edit_content(to_lines, file_name))
-        diffs = difflib.unified_diff(from_lines, to_lines,
-                                     fromfile=file_name, tofile='<new>')
+        diffs = difflib.unified_diff(
+            from_lines, to_lines, fromfile=file_name, tofile="<new>"
+        )
         if not self.dry_run:
-            bak_file_name = file_name + ".bak"
-            if os.path.exists(bak_file_name):
-                msg = "{} already exists".format(bak_file_name)
-                if sys.version_info < (3, 3):
-                    raise OSError(msg)
-                else:
-                    # noinspection PyCompatibility
-                    # pylint: disable=undefined-variable
-                    raise FileExistsError(msg)
-            try:
-                os.rename(file_name, bak_file_name)
-                with io.open(file_name, 'w', encoding=self.encoding) as new:
-                    new.writelines(to_lines)
-                # Keeps mode of original file.
-                shutil.copymode(bak_file_name, file_name)
-            except Exception as err:
-                log.error("failed to write output to %s: %s", file_name, err)
-                # Try to recover...
-                try:
-                    os.rename(bak_file_name, file_name)
-                except OSError as err:
-                    log.error("failed to restore %s from %s: %s",
-                              file_name, bak_file_name, err)
-                raise
-            try:
-                os.unlink(bak_file_name)
-            except OSError as err:
-                log.warning("failed to remove backup %s: %s",
-                            bak_file_name, err)
+            if file_name == "-":
+                sys.stdout.writelines(to_lines)
+            else:
+                self.write_to(file_name, to_lines)
         return list(diffs)
 
     def append_code_expr(self, code):
@@ -264,7 +286,7 @@ class MassEdit(object):
             raise TypeError("string expected")
         log.debug("compiling code %s...", code)
         try:
-            code_obj = compile(code, '<string>', 'eval')
+            code_obj = compile(code, "<string>", "eval")
             self.code_objs[code] = code_obj
         except SyntaxError as syntax_err:
             log.error("cannot compile %s: %s", code, syntax_err)
@@ -282,9 +304,9 @@ class MassEdit(object):
           function (str or callable): function to call on input.
 
         """
-        if not hasattr(function, '__call__'):
+        if not hasattr(function, "__call__"):
             function = get_function(function)
-            if not hasattr(function, '__call__'):
+            if not hasattr(function, "__call__"):
                 raise ValueError("function is expected to be callable")
         self._functions.append(function)
         log.debug("registered %s", function.__name__)
@@ -299,13 +321,16 @@ class MassEdit(object):
         if isinstance(executable, str) and not isinstance(executable, unicode):
             executable = unicode(executable)
         if not isinstance(executable, unicode):
-            raise TypeError("expected executable name as str, not {}".
-                            format(executable.__class__.__name__))
+            raise TypeError(
+                "expected executable name as str, not {}".format(
+                    executable.__class__.__name__
+                )
+            )
         self._executables.append(executable)
 
     def set_code_exprs(self, codes):
         """Convenience: sets all the code expressions at once."""
-        self.code_objs = dict()
+        self.code_objs = {}
         self._codes = []
         for code in codes:
             self.append_code_expr(code)
@@ -334,59 +359,120 @@ def parse_command_line(argv):
     """
     import textwrap
 
-    example = textwrap.dedent("""
+    example = textwrap.dedent(
+        r"""
     Examples:
     # Simple string substitution (-e). Will show a diff. No changes applied.
     {0} -e "re.sub('failIf', 'assertFalse', line)" *.py
 
     # File level modifications (-f). Overwrites the files in place (-w).
-    {0} -w -f fixer:main *.py
+    {0} -w -f fixer:fixit *.py
 
     # Will change all test*.py in subdirectories of tests.
     {0} -e "re.sub('failIf', 'assertFalse', line)" -s tests test*.py
-    """).format(os.path.basename(argv[0]))
+
+    # Will transform virtual methods (almost) to MOCK_METHOD suitable for gmock (see https://github.com/google/googletest).
+    {0} -e "re.sub(r'\s*virtual\s+([\w:<>,\s&*]+)\s+(\w+)(\([^\)]*\))\s*((\w+)*)(=\s*0)?;', 'MOCK_METHOD(\g<1>, \g<2>, \g<3>, (\g<4>, override));', line)" test.cpp
+    """
+    ).format(os.path.basename(argv[0]))
     formatter_class = argparse.RawDescriptionHelpFormatter
-    parser = argparse.ArgumentParser(description="Python mass editor",
-                                     epilog=example,
-                                     formatter_class=formatter_class)
-    parser.add_argument("-V", "--version", action="version",
-                        version="%(prog)s {}".format(__version__))
-    parser.add_argument("-w", "--write", dest="dry_run",
-                        action="store_false", default=True,
-                        help="modify target file(s) in place. "
-                        "Shows diff otherwise.")
-    parser.add_argument("-v", "--verbose", dest="verbose_count",
-                        action="count", default=0,
-                        help="increases log verbosity (can be specified "
-                        "multiple times)")
-    parser.add_argument("-e", "--expression", dest="expressions", nargs=1,
-                        help="Python expressions applied to target files. "
-                        "Use the line variable to reference the current line.")
-    parser.add_argument("-f", "--function", dest="functions", nargs=1,
-                        help="Python function to apply to target file. "
-                        "Takes file content as input and yield lines. "
-                        "Specify function as [module]:?<function name>.")
-    parser.add_argument("-x", "--executable", dest="executables", nargs=1,
-                        help="Python executable to apply to target file.")
-    parser.add_argument("-s", "--start", dest="start_dirs",
-                        help="Directory(ies) from which to look for targets.")
-    parser.add_argument("-m", "--max-depth-level", type=int, dest="max_depth",
-                        help="Maximum depth when walking subdirectories.")
-    parser.add_argument("-o", "--output", metavar="output",
-                        type=argparse.FileType("w"), default=sys.stdout,
-                        help="redirect output to a file")
-    parser.add_argument("--encoding", dest="encoding",
-                        help="Encoding of input and output files")
-    parser.add_argument("patterns", metavar="pattern",
-                        nargs="+",  # argparse.REMAINDER,
-                        help="shell-like file name patterns to process.")
+    parser = argparse.ArgumentParser(
+        description="Python mass editor",
+        epilog=example,
+        formatter_class=formatter_class,
+    )
+    parser.add_argument(
+        "-V", "--version", action="version", version="%(prog)s {}".format(__version__)
+    )
+    parser.add_argument(
+        "-w",
+        "--write",
+        dest="dry_run",
+        action="store_false",
+        default=True,
+        help="modify target file(s) in place. " "Shows diff otherwise.",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        dest="verbose_count",
+        action="count",
+        default=0,
+        help="increases log verbosity (can be specified " "multiple times)",
+    )
+    parser.add_argument(
+        "-e",
+        "--expression",
+        dest="expressions",
+        nargs=1,
+        help="Python expressions applied to target files. "
+        "Use the line variable to reference the current line.",
+    )
+    parser.add_argument(
+        "-f",
+        "--function",
+        dest="functions",
+        nargs=1,
+        help="Python function to apply to target file. "
+        "Takes file content as input and yield lines. "
+        "Specify function as [module]:?<function name>.",
+    )
+    parser.add_argument(
+        "-x",
+        "--executable",
+        dest="executables",
+        nargs=1,
+        help="Python executable to apply to target file.",
+    )
+    parser.add_argument(
+        "-s",
+        "--start",
+        dest="start_dirs",
+        help="Directory(ies) from which to look for targets.",
+    )
+    parser.add_argument(
+        "-m",
+        "--max-depth-level",
+        type=int,
+        dest="max_depth",
+        help="Maximum depth when walking subdirectories.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        type=argparse.FileType("w"),
+        default=sys.stdout,
+        help="redirect output to a file",
+    )
+    parser.add_argument(
+        "-g",
+        "--generate",
+        metavar="FILE",
+        type=str,
+        help="generate stub file suitable for -f option",
+    )
+    parser.add_argument(
+        "--encoding", dest="encoding", help="Encoding of input and output files"
+    )
+    parser.add_argument(
+        "--newline", dest="newline", help="Newline character for output files"
+    )
+    parser.add_argument(
+        "patterns",
+        metavar="file pattern",
+        nargs="*",  # argparse.REMAINDER,
+        help="shell-like file name patterns to process or - to read from stdin.",
+    )
     arguments = parser.parse_args(argv[1:])
 
-    if not (arguments.expressions or
-            arguments.functions or
-            arguments.executables):
-        parser.error(
-            '--expression, --function, or --executable must be specified')
+    if not (
+        arguments.expressions
+        or arguments.functions
+        or arguments.generate
+        or arguments.executables
+    ):
+        parser.error("--expression, --function, --generate or --executable missing")
 
     # Sets log level to WARN going more verbose for each new -V.
     log.setLevel(max(3 - arguments.verbose_count, 0) * 10)
@@ -398,15 +484,18 @@ def get_paths(patterns, start_dirs=None, max_depth=1):
     # Shortcut: if there is only one pattern, make sure we process just that.
     if len(patterns) == 1 and not start_dirs:
         pattern = patterns[0]
+        if pattern == "-":
+            yield pattern
+            return
         directory = os.path.dirname(pattern)
         if directory:
             patterns = [os.path.basename(pattern)]
             start_dirs = directory
             max_depth = 1
 
-    if not start_dirs or start_dirs == '.':
+    if not start_dirs or start_dirs == ".":
         start_dirs = os.getcwd()
-    for start_dir in start_dirs.split(','):
+    for start_dir in start_dirs.split(","):
         for root, dirs, files in os.walk(start_dir):  # pylint: disable=W0612
             if max_depth is not None:
                 relpath = os.path.relpath(root, start=start_dir)
@@ -421,11 +510,57 @@ def get_paths(patterns, start_dirs=None, max_depth=1):
                 yield path
 
 
+fixer_template = """\
+#!/usr/bin/env python
+
+def fixit(lines, file_name):
+    '''Edit files passed to massedit
+
+    :param list(str) lines: list of lines contained in the input file
+    :param str file_name: name of the file the lines were read from
+
+    :return: modified lines
+    :rtype: list(str)
+
+    Please modify the logic below (it does not change anything right now)
+    and apply your logic to the in your directory like this:
+
+    massedit -f <file name>:fixit files_to_modify/*
+
+    See massedit -h for help and other options.
+
+    '''
+    changed_lines = []
+    for lineno, line in enumerate(lines):
+        # See https://regex101.com/?filterFlavors=python
+        changed_line = line.sub(pat, repl, line)
+        changed_lines.append(changed_line)
+    return changed_lines
+
+
+"""
+
+
+def generate_fixer_file(output):
+    """Generate a template fixer file to be used with --function option."""
+    with open(output, "w+") as fh:
+        fh.write(fixer_template)
+    return
+
+
 # pylint: disable=too-many-arguments, too-many-locals
-def edit_files(patterns, expressions=None,
-               functions=None, executables=None,
-               start_dirs=None, max_depth=1, dry_run=True,
-               output=sys.stdout, encoding=None):
+def edit_files(
+    patterns,
+    expressions=None,
+    functions=None,
+    executables=None,
+    start_dirs=None,
+    max_depth=1,
+    dry_run=True,
+    output=sys.stdout,
+    encoding=None,
+    newline=None,
+):
     """Process patterns with MassEdit.
 
     Arguments:
@@ -433,8 +568,6 @@ def edit_files(patterns, expressions=None,
       expressions: single python expression to be applied line by line.
       functions: functions to process files contents.
       executables: os executables to execute on the argument files.
-
-    Keyword arguments:
       max_depth: maximum recursion level when looking for file matches.
       start_dirs: workspace(ies) where to start the file search.
       dry_run: only display differences if True. Save modified file otherwise.
@@ -453,7 +586,7 @@ def edit_files(patterns, expressions=None,
     if executables and not is_list(executables):
         raise TypeError("executables should be a list of program names")
 
-    editor = MassEdit(dry_run=dry_run, encoding=encoding)
+    editor = MassEdit(dry_run=dry_run, encoding=encoding, newline=newline)
     if expressions:
         editor.set_code_exprs(expressions)
     if functions:
@@ -462,21 +595,20 @@ def edit_files(patterns, expressions=None,
         editor.set_executables(executables)
 
     processed_paths = []
-    for path in get_paths(patterns, start_dirs=start_dirs,
-                          max_depth=max_depth):
+    for path in get_paths(patterns, start_dirs=start_dirs, max_depth=max_depth):
         try:
             diffs = list(editor.edit_file(path))
             if dry_run:
                 # At this point, encoding is the input encoding.
                 diff = "".join(diffs)
                 if not diff:
-                    return
+                    continue
                 # The encoding of the target output may not match the input
                 # encoding. If it's defined, we round trip the diff text
                 # to bytes and back to silence any conversion errors.
                 encoding = output.encoding
                 if encoding:
-                    bytes_diff = diff.encode(encoding=encoding, errors='ignore')
+                    bytes_diff = diff.encode(encoding=encoding, errors="ignore")
                     diff = bytes_diff.decode(encoding=output.encoding)
                 output.write(diff)
         except UnicodeDecodeError as err:
@@ -494,15 +626,20 @@ def command_line(argv):
 
     """
     arguments = parse_command_line(argv)
-    paths = edit_files(arguments.patterns,
-                       expressions=arguments.expressions,
-                       functions=arguments.functions,
-                       executables=arguments.executables,
-                       start_dirs=arguments.start_dirs,
-                       max_depth=arguments.max_depth,
-                       dry_run=arguments.dry_run,
-                       output=arguments.output,
-                       encoding=arguments.encoding)
+    if arguments.generate:
+        generate_fixer_file(arguments.generate)
+    paths = edit_files(
+        arguments.patterns,
+        expressions=arguments.expressions,
+        functions=arguments.functions,
+        executables=arguments.executables,
+        start_dirs=arguments.start_dirs,
+        max_depth=arguments.max_depth,
+        dry_run=arguments.dry_run,
+        output=arguments.output,
+        encoding=arguments.encoding,
+        newline=arguments.newline,
+    )
     # If the output is not sys.stdout, we need to close it because
     # argparse.FileType does not do it for us.
     is_sys = arguments.output in [sys.stdout, sys.stderr]

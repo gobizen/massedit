@@ -5,20 +5,28 @@
 .. image:: https://img.shields.io/pypi/pyversions/massedit.svg
     :target: https://pypi.python.org/pypi/massedit/
     :alt: Python compatibility
- 	
-.. image:: https://img.shields.io/travis/elmotec/massedit.svg
-    :target: https://travis-ci.org/elmotec/massedit
-    :alt: Build Status
+
+.. image:: https://img.shields.io/github/workflow/status/elmotec/massedit/Python%20application
+    :target: https://github.com/elmotec/massedit/actions?query=workflow%3A%22Python+application%22
+    :alt: GitHub Workflow Python application
+
+.. image:: https://img.shields.io/appveyor/ci/elmotec/massedit.svg?label=AppVeyor
+    :target: https://ci.appveyor.com/project/elmotec/massedit
+    :alt: AppVeyor status
 
 .. image:: https://img.shields.io/pypi/dm/massedit.svg
     :alt: PyPi
     :target: https://pypi.python.org/pypi/massedit
 
+.. image:: https://img.shields.io/librariesio/release/pypi/massedit.svg?label=libraries.io
+    :alt: Libraries.io dependency status for latest release
+    :target: https://libraries.io/pypi/massedit
+
 .. image:: https://coveralls.io/repos/elmotec/massedit/badge.svg
     :target: https://coveralls.io/r/elmotec/massedit
     :alt: Coverage
-    
-.. image:: https://img.shields.io/codacy/474b0af6853a4c5f8f9214d3220571f9.svg
+
+.. image:: https://img.shields.io/codacy/grade/474b0af6853a4c5f8f9214d3220571f9.svg
     :target: https://www.codacy.com/app/elmotec/massedit/dashboard
     :alt: Codacy
 
@@ -56,47 +64,55 @@ expressions).
 
 ::
 
-  usage: massedit.py [-h] [-V] [-w] [-v] [-e EXPRESSIONS] [-f FUNCTIONS]
-                     [-x EXECUTABLES] [-s START_DIRS] [-m MAX_DEPTH] [-o output]
-                     pattern [pattern ...]
+    usage: massedit.py [-h] [-V] [-w] [-v] [-e EXPRESSIONS] [-f FUNCTIONS]
+                       [-x EXECUTABLES] [-s START_DIRS] [-m MAX_DEPTH] [-o FILE]
+                       [-g FILE] [--encoding ENCODING] [--newline NEWLINE]
+                       [file pattern [file pattern ...]]
 
-  Python mass editor
+    Python mass editor
 
-  positional arguments:
-    pattern               shell-like file name patterns to process.
+    positional arguments:
+      file pattern          shell-like file name patterns to process or - to read
+                            from stdin.
 
-  optional arguments:
-    -h, --help            show this help message and exit
-    -V, --version         show program's version number and exit
-    -w, --write           modify target file(s) in place. Shows diff otherwise.
-    -v, --verbose         increases log verbosity (can be specified multiple
-                          times)
-    -e EXPRESSIONS, --expression EXPRESSIONS
-                          Python expressions applied to target files. Use the
-                          line variable to reference the current line.
-    -f FUNCTIONS, --function FUNCTIONS
-                          Python function to apply to target file. Takes file
-                          content as input and yield lines. Specify function as
-                          [module]:?<function name>.
-    -x EXECUTABLES, --executable EXECUTABLES
-                          Python executable to apply to target file.
-    -s START_DIRS, --start START_DIRS
-                          Directory(ies) from which to look for targets.
-    -m MAX_DEPTH, --max-depth-level MAX_DEPTH
-                          Maximum depth when walking subdirectories.
-    -o output, --output output
-                          redirect output to a file
-    --encoding ENCODING   Encoding of input and output files
+    optional arguments:
+      -h, --help            show this help message and exit
+      -V, --version         show program's version number and exit
+      -w, --write           modify target file(s) in place. Shows diff otherwise.
+      -v, --verbose         increases log verbosity (can be specified multiple
+                            times)
+      -e EXPRESSIONS, --expression EXPRESSIONS
+                            Python expressions applied to target files. Use the
+                            line variable to reference the current line.
+      -f FUNCTIONS, --function FUNCTIONS
+                            Python function to apply to target file. Takes file
+                            content as input and yield lines. Specify function as
+                            [module]:?<function name>.
+      -x EXECUTABLES, --executable EXECUTABLES
+                            Python executable to apply to target file.
+      -s START_DIRS, --start START_DIRS
+                            Directory(ies) from which to look for targets.
+      -m MAX_DEPTH, --max-depth-level MAX_DEPTH
+                            Maximum depth when walking subdirectories.
+      -o FILE, --output FILE
+                            redirect output to a file
+      -g FILE, --generate FILE
+                            generate stub file suitable for -f option
+      --encoding ENCODING   Encoding of input and output files
+      --newline NEWLINE     Newline character for output files
 
-  Examples:
-  # Simple string substitution (-e). Will show a diff. No changes applied.
-  massedit.py -e "re.sub('failIf', 'assertFalse', line)" *.py
+    Examples:
+    # Simple string substitution (-e). Will show a diff. No changes applied.
+    massedit.py -e "re.sub('failIf', 'assertFalse', line)" *.py
 
-  # File level modifications (-f). Overwrites the files in place (-w).
-  massedit.py -w -f fixer:main *.py
+    # File level modifications (-f). Overwrites the files in place (-w).
+    massedit.py -w -f fixer:fixit *.py
 
-  # Will change all test*.py in subdirectories of tests.
-  massedit.py -e "re.sub('failIf', 'assertFalse', line)" -s tests test*.py
+    # Will change all test*.py in subdirectories of tests.
+    massedit.py -e "re.sub('failIf', 'assertFalse', line)" -s tests test*.py
+
+    # Will transform virtual methods (almost) to MOCK_METHOD suitable for gmock (see https://github.com/google/googletest).
+    massedit.py -e "re.sub(r'\s*virtual\s+([\w:<>,\s&*]+)\s+(\w+)(\([^\)]*\))\s*((\w+)*)(=\s*0)?;', 'MOCK_METHOD(\g<1>, \g<2>, \g<3>, (\g<4>, override));', line)" gmock_test.cpp
 
 
 If massedit is installed as a package (from pypi for instance), one can interact with it as a command line tool:
@@ -126,7 +142,7 @@ Download ``massedit.py`` from ``http://github.com/elmotec/massedit`` or :
 
 ::
 
-  pip install massedit
+  python -m pip install massedit
 
 
 Poor man source-to-source manipulation
@@ -189,8 +205,23 @@ The core was fleshed up a little, and here we are. If you find it useful and
 enhance it please, do not forget to submit patches. Thanks!
 
 If you are more interested in awk-like tool, you probably will find pyp_ a
-better alternative. This is certainly a more mature tool.
+better alternative.
 
+
+Contributing
+------------
+
+To set things up for development, the easiest is to pip-install the develop
+extra configuration:
+
+::
+
+    python -m venv venv
+    . venv/bin/activate
+    python -m pip install -e .[develop]
+
+
+The best is to use commitizen_ when performing commits.
 
 License
 -------
@@ -201,13 +232,39 @@ Licensed under the term of `MIT License`_. See attached file LICENSE.txt.
 Changes
 -------
 
+See CHANGELOG.md for changes later than 0.69.0
+
+0.69.1 (2023-09-10)
+  Updated infrastructure files to setup.cfg/pyproject.toml instead of
+  setup.py.  Thanks @isidroas.
+
+0.69.0 (2020-12-22)
+  Also moved CI to github workflows from travis and added
+  regression tests for Python 2.7.
+
+0.68.6 (2019-12-02)
+  Added support for Python 3.8, stdin input via - argument. Documented
+  regex to turn base classes into googlemock MOCK_METHOD.
+
+0.68.5 (2019-04-13)
+  Added --newline option to force newline output. Thanks @ALFNeT!
+
+0.68.4 (2017-10-24)
+  Fixed bug that would cause changes to be missed when the -w option is
+  ommited. Thanks @tgoodlet!
+
+0.68.3 (2017-09-20)
+  Added --generate option to quickly generate a fixer.py template file
+  to be modified to be used with -f fixer.fixit option. Added official
+  support for Python 3.6
+
 0.68.1 (2016-06-04)
   Fixed encoding issues when processing non-ascii files.
   Added --encoding option to force the value of the encoding if need be.
   Listed support for Python 3.5
 
 0.67.1 (2015-06-28)
-  Documentation fixes. 
+  Documentation fixes.
 
 0.67 (2015-06-23)
   Added file_name argument to processing functions.
@@ -253,7 +310,10 @@ Changes
 Contributor acknowledgement
 ---------------------------
 
-Steven Myint, https://github.com/myint
+https://github.com/myint
+https://github.com/tgoodlet
+https://github.com/ALFNeT
+https://github.com/isidroas
 
 
 
@@ -263,4 +323,4 @@ Steven Myint, https://github.com/myint
 .. _MIT License: http://en.wikipedia.org/wiki/MIT_License
 .. _autopep8: http://pypi.python.org/pypi/autopep8
 .. _Ned Batchelder's article: http://nedbatchelder.com/blog/201206/eval_really_is_dangerous.html
-
+.. _commitizen: https://commitizen-tools.github.io/commitizen/
